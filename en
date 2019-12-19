@@ -1,0 +1,42 @@
+#Arguments from script
+param (
+[int]$EngineID,
+[string]$action
+)
+
+# load the snappin if it's not already loaded (step 1)  
+if (!(Get-PSSnapin | Where-Object { $_.Name -eq "SwisSnapin" })) {  
+    Add-PSSnapin "SwisSnapin"  
+}  
+  
+#Connection SW
+$hostname = "pros-orion-05"  
+$username = "admin"  
+$password = "Pr0sp3r0n"  
+$cred = New-Object -typename System.Management.Automation.PSCredential -argumentlist @($username,(ConvertTo-SecureString -String $password -AsPlainText -Force))  
+$swis= Connect-Swis -Credential $cred -Hostname $hostname 
+
+
+#Action when polling engine goes down
+if($action -eq 'Trigger')
+{
+	#Get list of devices impacted by the polling engine
+	$devicesindownengineid = get-swisdata $swis "select uri from orion.nodes where engineid = $EngineID"
+
+	foreach($uri in $devicesindownengineid)
+	{
+		#Select less used engineid
+		$newengineid = get-swisdata $swis "select top 1 e.engineid from orion.engines e inner join orion.nodes n on n.ipaddress = e.ip where n.status not in (2,9,11) and n.engineid <> $engineid order by elements asc"
+		#Assign new engineid
+		set-swisobject $swis $uri -Properties @{engineid = $newengineid}
+	}
+#Action when polling engine comes back up
+} elseif ($action -eq 'Reset') {
+	#Get devices that were assigned to that polling engin
+	$devicesinrecoveredengineid = get-swisdata $swis "select n.uri from orion.nodes n where n.customproperties.pollingengine = $EngineID"
+	foreach($uri in $devicesinrecoveredengineid)
+	{
+		#Assign the old engineid
+		set-swisobject $swis $uri -Properties @{engineid = $engineid}
+	}
+}
